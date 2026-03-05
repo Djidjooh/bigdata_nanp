@@ -242,7 +242,7 @@ python main.py put --bucket my-bucket --local /path/to/local/file
 
 * ### **Kafka Cluster**
 
-  * **console**: **`https://localhost:8443/nifi/login`** 
+  * **console**: **`https://localhost:8100/`** 
 
   <p align="center">
     <picture>
