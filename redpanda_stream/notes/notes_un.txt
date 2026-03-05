@@ -1,0 +1,51 @@
+
+========== TEST CONNECT =============
+
+============= SOURCE
+
+curl -s -X GET http://localhost:8093/connector-plugins | jq '.[].class'
+curl -s http://localhost:8093/connectors | jq
+
+curl -s http://localhost:8093/connectors/tyrok-source-connector/status | jq
+curl -s http://localhost:8093/connector-plugins/tyrok-source-connector/config/validate | jq
+
+curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json" -d @tyrok-source-connector.json
+
+curl -s http://localhost:8093/connectors/tyrok-source-connector/status | jq
+
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/pause
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/resume
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/stop
+curl -X DELETE http://localhost:8093/connectors/tyrok-source-connector/offsets
+curl -X DELETE http://localhost:8093/connectors/tyrok-source-connector
+
+=========== SINK
+
+curl -s -X GET http://localhost:8093/connector-plugins | jq '.[].class'
+curl -s http://localhost:8093/connectors | jq
+
+curl -s http://localhost:8093/connectors/tyrok-sink-connector/status | jq
+curl -s http://localhost:8093/connector-plugins/tyrok-sink-connector/config/validate | jq
+
+curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json" -d @tyrok-sink-connector.json
+
+curl -s http://localhost:8093/connectors/tyrok-sink-connector/status | jq
+
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/pause
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/resume
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/stop
+curl -X DELETE http://localhost:8093/connectors/tyrok-sink-connector/offsets
+curl -X DELETE http://localhost:8093/connectors/tyrok-sink-connector
+
+======= TRASH
+"schema.compatibility": "BACKWARD",
+"rotate.schedule.interval.ms": "30000",
+
+"rotate.interval.ms": "30000",
+# 1----- REDPANDA clean
+sudo rm -rf /home/patrick/Téléchargements/ressources/redpanda/redpanda-0/*
+sudo rm -rf /home/patrick/Téléchargements/ressources/redpanda/redpanda-1/*
+sudo rm -rf /home/patrick/Téléchargements/ressources/redpanda/redpanda-2/*
+
+# 2----- MYSQL clean
+sudo rm -rf /home/patrick/Téléchargements/ressources/mysql/*

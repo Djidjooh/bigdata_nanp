@@ -61,10 +61,10 @@ services:
     healthcheck:
       #test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]      
       test: ["CMD-SHELL", "rpk redpanda admin brokers list | grep $(hostname) | grep -q 'true'"]
-      interval: 5s # Intervalle entre les tentatives de healthcheck
+      interval: 8s # Intervalle entre les tentatives de healthcheck
       timeout: 5s # Durée maximale pour considérer une tentative de healthcheck comme échouée
       retries: 10 # Nombre de tentatives avant de considérer le service comme non sain
-      start_period: 5s # Durée d'attente avant de commencer les healthchecks (le temps que le service démarre)
+      start_period: 10s # Durée d'attente avant de commencer les healthchecks (le temps que le service démarre)
     networks:
       - bigdata
     ports:
@@ -391,6 +391,92 @@ services:
         condition: service_healthy          
     networks:
       - bigdata
+
+  # --- STREAMLIT DASHBOARD ---
+  streamlit-dashboard:
+    image: python:3.11-slim
+    container_name: streamlit-dashboard
+    hostname: streamlit-dashboard
+    healthcheck:
+      test: ["CMD", "curl --fail http://localhost:8501/_stcore/health || exit 1"]
+      interval: 5s # Intervalle entre les tentatives de healthcheck
+      timeout: 5s # Durée maximale pour considérer une tentative de healthcheck comme échouée      retries: 5
+      start_period: 5s # Durée d'attente avant de commencer les healthchecks (le temps que le service démarre)
+      retries: 10 # Nombre de tentatives avant de considérer le service comme non sain
+    ports:
+      - "8551:8501"
+    working_dir: /app
+    volumes:
+      # On monte le dossier spécifique vers /app dans le conteneur
+      - ./python/streamlit-result:/app
+      - share_data:/partage
+      - ./python/streamlit-result/.streamlit:/app/.streamlit 
+    depends_on:
+      minio:
+        condition: service_healthy  
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password123 
+      MINIO_BUCKET: client-redpanda
+      TOPIC_NAME: bank_sandaga.REDPANDA.TYROK.client
+    # Commande pour installer les dépendances et lancer l'app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt && 
+             streamlit run app.py --server.port=8501 --server.address=0.0.0.0"
+    networks:
+      - bigdata
+
+
+  python_base:
+    build:
+      context: .
+      dockerfile: dockerfile_python
+    container_name: python_base
+    hostname: python_base
+    restart: always
+    #profiles: ["client", "terminal"] # Ne démarrera QUE si vous le demandez explicitement
+    healthcheck:
+      test: ["CMD", "python", "--version"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - ./python:/app
+      - share_data:/partage
+    networks:
+      - bigdata
+
+
+  # --- AUTOMATISATION (LANCE LE SCRIPT) ---
+  setup-automation:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
+    container_name: setup-automation
+    hostname: setup-automation
+    #profiles: ["extra"] # Ne démarrera QUE si vous le demandez explicitement
+    volumes:
+      - ./scripts/setup_pipeline.sh:/setup_pipeline.sh
+      - ./scripts/init_mysql.sql:/init_mysql.sql
+      - ./scripts/setup_tyrok.sql:/setup_tyrok.sql
+      - ./tyrok-sink-connector.json:/tyrok-sink-connector.json
+      - ./tyrok-source-connector.json:/tyrok-source-connector.json
+    depends_on:
+      mysql:
+        condition: service_healthy
+      connect:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: 
+      - |
+        chmod +x /setup_pipeline.sh
+        cd /
+        source /setup_pipeline.sh
+    networks:
+      - bigdata
+
 
   
 volumes:

@@ -14,7 +14,7 @@
         "include.schema.changes": "true",
         
         "schema.history.internal.kafka.bootstrap.servers": "kafka:9092", 
-        "schema.history.internal.kafka.topic": "chema-history.TYROK", 
+        "schema.history.internal.kafka.topic": "schema-history.TYROK", 
 
         "key.converter": "io.confluent.connect.avro.AvroConverter",
         "key.converter.schema.registry.url": "http://schema-registry:8081",

@@ -1,0 +1,114 @@
+0-- lancement & arret:
+docker compose up -d -> lancera tous les services sauf ceux qui ont un profile (setup-automation)
+docker compose --profile "*" up -d -> lancera tous les services
+docker compose --profile extra up -d -> lancera tous les services de base et setup-automation
+COMPOSE_PROFILES=extra,terminal docker compose up -d -> services de bases + setup-automation + python_base
+    docker compose --profile extra --profile terminal up -d
+COMPOSE_PROFILES=extra,ui,terminal docker compose up -d -> services de bases + setup-automation + python_base + streamlit
+
+
+docker compose --profile "*" down -v --remove-orphans -> arret
+
+
+I-- Mysql config (my-custom.cnf -> /etc/mysql/conf.d/my-custom.cnf)
+# under [mysqld]
+
+# 0. disable
+default_authentication_plugin=mysql_native_password
+
+# 1. Enable Binary Logging
+log-bin=mysql-bin
+binlog_format=ROW
+binlog_row_image=FULL
+binlog_rows_query_log_events=ON
+
+# 2. Set Retention (7 days is standard to avoid disk fill-up)
+binlog_expire_logs_seconds=604800
+
+# 3. Server ID (Must be unique within your replication topology)
+server-id=1
+
+# 4. GTID Mode (Recommended for recovery and consistency)
+gtid_mode=ON
+enforce_gtid_consistency=ON
+
+
+II-- user config (nanp)
+GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'nanp'@'%';
+FLUSH PRIVILEGES;
+
+-- permisisons d'un utilisateur
+SHOW GRANTS;
+SHOW GRANTS FOR CURRENT_USER;
+SHOW GRANTS FOR 'nom_utilisateur'@'localhost';
+
+-- List all users
+SELECT User, Host FROM mysql.user;
+
+III-- check variables values (you can replace 'log_bin' with 'binlog_format' and so on)
+SELECT variable_value as "BINARY LOGGING STATUS (log-bin) ::"
+FROM performance_schema.global_variables WHERE variable_name='log_bin';
+
+IV-- for server id and uuid (go to my-custom.cnf to change it)
+SELECT @@server_id;
+SELECT @@server_uuid;
+
+V-- check GTID (go to my-custom.cnf to change it)
+show global variables like '%GTID%';
+
+========== TEST CONNECT =============
+
+============= SOURCE
+
+curl -s -X GET http://localhost:8093/connector-plugins | jq '.[].class'
+curl -s http://localhost:8093/connectors | jq
+
+curl -s http://localhost:8093/connectors/tyrok-source-connector/status | jq
+curl -s http://localhost:8093/connector-plugins/tyrok-source-connector/config/validate | jq
+
+curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json" -d @tyrok-source-connector.json
+
+curl -s http://localhost:8093/connectors/tyrok-source-connector/status | jq
+
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/pause
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/resume
+curl -X PUT http://localhost:8093/connectors/tyrok-source-connector/stop
+curl -X DELETE http://localhost:8093/connectors/tyrok-source-connector/offsets
+curl -X DELETE http://localhost:8093/connectors/tyrok-source-connector
+
+=========== SINK
+
+curl -s -X GET http://localhost:8093/connector-plugins | jq '.[].class'
+curl -s http://localhost:8093/connectors | jq
+
+curl -s http://localhost:8093/connectors/tyrok-sink-connector/status | jq
+curl -s http://localhost:8093/connector-plugins/tyrok-sink-connector/config/validate | jq
+
+curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json" -d @tyrok-sink-connector.json
+
+curl -s http://localhost:8093/connectors/tyrok-sink-connector/status | jq
+
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/pause
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/resume
+curl -X PUT http://localhost:8093/connectors/tyrok-sink-connector/stop
+curl -X DELETE http://localhost:8093/connectors/tyrok-sink-connector/offsets
+curl -X DELETE http://localhost:8093/connectors/tyrok-sink-connector
+
+============ KAFKA
+
+cd /opt/kafka/bin/
+./kafka-topics.sh --list --bootstrap-server localhost:9092
+./kafka-topics.sh --describe --topic fullfillment --bootstrap-server localhost:9092
+./kafka-console-consumer.sh --topic fullfillment.TYROK --from-beginning --bootstrap-server localhost:9092
+./kafka-console-consumer.sh --topic fullfillment.TYROK.TYROK.client --from-beginning --bootstrap-server localhost:9092
+
+========== MINIO
+# delete a bucket
+docker exec minio mc rb --force myalias/nom-du-bucket 
+
+========= trash
+"schema.compatibility": "BACKWARD",
+"key.converter": "io.confluent.connect.avro.AvroConverter",
+"key.converter.schema.registry.url": "http://schema-registry:8081",
+"schema.compatibility": "NONE",
+    

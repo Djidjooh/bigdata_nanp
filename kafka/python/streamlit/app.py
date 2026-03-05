@@ -44,7 +44,7 @@ def get_connection():
 #print(f"db name: {os.getenv('MYSQL_DATABASE')}")
 
 st.set_page_config(
-    page_title=f"{APP_NAME}",
+    page_title=f"Application {APP_NAME}",
     page_icon="💼",
     layout="wide", # Mode large pour plus de confort
     initial_sidebar_state="expanded"    
@@ -102,7 +102,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
     
 
-st.title(f"🚀 {APP_NAME}")
+st.title(f"🚀 Application {APP_NAME}")
 
 col1, col2 = st.columns([1, 2], gap="large")
 

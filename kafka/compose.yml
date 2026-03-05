@@ -26,9 +26,10 @@ services:
     healthcheck:
       # Vérifie que le broker est prêt à accepter des connexions
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 --version || exit 1"]
-      interval: 10s
-      timeout: 10s
+      interval: 5s
+      timeout: 5s
       retries: 10
+      start_period: 5s
     networks:
       - bigdata
     volumes:
@@ -38,7 +39,12 @@ services:
     image: mysql:8.0
     container_name: mysql
     hostname: mysql
-    # mysql -u root -p'root_password' -e "GRANT ALL PRIVILEGES ON *.* TO 'nanp'@'%'; FLUSH PRIVILEGES;"
+    # mysql -u root -pmysql -e "GRANT ALL PRIVILEGES ON *.* TO 'nanp'@'%'; FLUSH PRIVILEGES;"
+    # ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'mysql';
+    # ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'mysql';
+    # ALTER USER 'nanp'@'%' IDENTIFIED WITH mysql_native_password BY 'nanp';
+    # FLUSH PRIVILEGES;
+    # SELECT user, host FROM mysql.user;
     environment:
       - MYSQL_ROOT_PASSWORD=mysql
       - MYSQL_USER=nanp
@@ -46,10 +52,10 @@ services:
       - MYSQL_DATABASE=nanp_db
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 5s
     volumes:
       - mysql_data:/var/lib/mysql
       - ./my-custom.cnf:/etc/mysql/conf.d/my-custom.cnf
@@ -73,10 +79,10 @@ services:
       SCHEMA_REGISTRY_LISTENERS: 'http://0.0.0.0:8081'
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks:
       - bigdata
     volumes:
@@ -124,12 +130,13 @@ services:
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: "All"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 20s
     command:
       - /bin/bash
       - -c
@@ -153,13 +160,48 @@ services:
     volumes:
       - minio_data:/data
       - share_data:/partage
-    command: server /data --console-address ":9001"
+    #command: server /data --console-address ":9001"
+    entrypoint: ["/bin/sh", "-c"] # On force le shell ici
+    command: >
+            "minio server /data --console-address ':9001' & 
+             sleep 5; 
+             mc alias set myalias http://localhost:9000 admin password123;
+             wait"
     restart: always
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
-      interval: 30s
+      interval: 5s
       timeout: 5s
       retries: 3
+      start_period: 5s
+    networks:
+      - bigdata
+
+  # --- AUTOMATISATION (LANCE LE SCRIPT) ---
+  setup-automation:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
+    container_name: setup-automation
+    hostname: setup-automation
+    profiles: ["extra"] # Ne démarrera QUE si vous le demandez explicitement
+    volumes:
+      - ./scripts/setup_pipeline.sh:/setup_pipeline.sh
+      - ./scripts/init_mysql.sql:/init_mysql.sql
+      - ./scripts/setup_tyrok.sql:/setup_tyrok.sql
+      - ./tyrok-sink-connector.json:/tyrok-sink-connector.json
+      - ./tyrok-source-connector.json:/tyrok-source-connector.json
+    depends_on:
+      mysql:
+        condition: service_healthy
+      connect:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: 
+      - |
+        chmod +x /setup_pipeline.sh
+        cd /
+        source /setup_pipeline.sh
     networks:
       - bigdata
 
@@ -170,17 +212,45 @@ services:
     container_name: python_base
     hostname: python_base
     restart: always
+    profiles: ["client", "terminal"] # Ne démarrera QUE si vous le demandez explicitement
     healthcheck:
       test: ["CMD", "python", "--version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     volumes:
       - ./python:/app
       - share_data:/partage
     networks:
       - bigdata
 
+  streamlit_app:
+    build:
+      context: ./python/streamlit
+      dockerfile: Dockerfile
+    container_name: streamlit_app
+    hostname: streamlit_app
+    restart: always
+    profiles: ["client","ui"] # Ne démarrera QUE si vous le demandez explicitement
+    healthcheck:
+      #test: ["CMD", "curl --fail http://localhost:8501/_stcore/health || exit 1"]
+      test: ["CMD", "curl --fail http://localhost:8501/_stcore/health"]
+      interval: 5s # Intervalle entre les tentatives de healthcheck
+      timeout: 5s # Durée maximale pour considérer une tentative de healthcheck comme échouée      retries: 5
+      start_period: 5s # Durée d'attente avant de commencer les healthchecks (le temps que le service démarre)
+      retries: 10 # Nombre de tentatives avant de considérer le service comme non sain
+    ports:
+      - "8581:8501"
+    volumes:
+      - ./python/streamlit:/app
+      - share_data:/partage
+      - ./python/streamlit/.streamlit:/app/.streamlit
+    depends_on:
+      mysql:
+        condition: service_healthy          
+    networks:
+      - bigdata
 
 volumes:
   mysql_data:
