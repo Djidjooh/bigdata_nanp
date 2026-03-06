@@ -57,7 +57,7 @@ It will help you to deploy and test a simple **Streaming** pipeline using **Dock
 
 - `python_mysql`: scripts used to add and list data in mysql
 
-- `python_minio`: scripts used to add, list, read parquet and bucket in minio
+- `python_minio`: scripts used to add, list and read parquet inside minio bucket.
 
 - `notifier`: scripts used to send notification a client like `Telegram, Slack`. In this case we use `GOTIFY`
 
@@ -71,9 +71,97 @@ It will help you to deploy and test a simple **Streaming** pipeline using **Dock
 
 - `init_mysql.sql`: Code SQL to config User `nanp` .
 
+```sql
+-- 1. Droits de réplication pour MySQL 8.0 (Indispensable pour Debezium)
+GRANT ALL PRIVILEGES ON *.* TO 'nanp'@'%';
+-- GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'nanp'@'%';
+FLUSH PRIVILEGES;
+```
+
 - `setup_tyrok.sql`: Code SQL intialize databases and tables.
 
+```sql
+-- Création de la base de données
+CREATE DATABASE IF NOT EXISTS TYROK;
+USE TYROK;
+
+-- Création de la table 'client'
+CREATE TABLE IF NOT EXISTS client (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    actif BOOLEAN DEFAULT TRUE
+);
+
+-- Création de la table 'product'
+CREATE TABLE IF NOT EXISTS product (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    actif BOOLEAN DEFAULT TRUE,
+    pu DECIMAL(10, 2) -- Utilisation de DECIMAL pour plus de précision monétaire
+);
+
+-- Création de la table 'sales'
+CREATE TABLE IF NOT EXISTS sales (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    id_client INT NOT NULL,
+    id_product INT NOT NULL,
+    qte INT NOT NULL,
+    total DECIMAL(12, 2),
+    
+    -- Définition des clés étrangères
+    CONSTRAINT fk_client FOREIGN KEY (id_client) REFERENCES client(id),
+    CONSTRAINT fk_product FOREIGN KEY (id_product) REFERENCES product(id)
+);
+```
+
 - `setup_pipeline.sh`: Shell script used to run `.sql files` and `deploy sink and source connectors`.
+
+```sh
+#!/bin/bash
+
+set -e # Arrête le script en cas d'erreur
+
+# Configuration des URLs (Accès interne au réseau Docker)
+CONNECT_URL="http://connect:8083/connectors"
+
+echo "----------------------------------------------------"
+echo "🚀 INITIALISATION DU PIPELINE BIG DATA"
+echo "----------------------------------------------------"
+
+# 1. INITIALISATION DES BASES DE DONNÉES (SQL)
+echo "⏳ Attente de la disponibilité des bases..."
+
+# Attente MySQL 
+echo "📦 Injecting SQL -> Setting UP nanp user credentials"
+mysql -h mysql -u root -pmysql --ssl=FALSE < /init_mysql.sql
+
+# Création des tables
+echo "📦 Injecting SQL -> Setting tables"
+mysql -h mysql -u nanp -pnanp --ssl=FALSE < /setup_tyrok.sql
+
+echo "✅ Bases de données prêtes."
+
+# 2. CONFIGURATION DES CONNECTEURS DEBEZIUM
+echo "⏳ Attente de l'API Debezium Connect..."
+
+echo "🔗 Enregistrement des connecteurs..."
+
+# SOURCE : MySQL: Avro
+echo "🔗 Enregistrement du connecteur Mysql Avro..."
+curl -i -X POST -H "Content-Type:application/json" \
+    -d @tyrok-source-connector.json \
+    $CONNECT_URL
+
+# SINK : Minio: Parquet
+echo "🔗 Enregistrement du connecteur Sink vers Minio Bucket: redpanda-bucket..."
+curl -i -X POST -H "Content-Type:application/json" \
+    -d @tyrok-sink-connector.json \
+    $CONNECT_URL
+
+echo -e "\n🔥 PIPELINE OPÉRATIONNEL !"
+```
 
 6- **config.yml:** config use by `redpanda-console container` to connect to `kafka cluster`. Sample file is **`redpanda-console-config.yaml`**
 
