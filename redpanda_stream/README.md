@@ -367,7 +367,7 @@ docker compose down -v --remove-orphans
 
 ### **Troubleshooting**
 
-* #### **clean all data in redpanda:** you can use **`setup-automation`** container to redeploy Sink and source connector
+* #### **clean all data in redpanda:** you can use **`setup-automation`** container to redeploy Sink and source connector.
 
 ```sh
 # 1- stop all and clean some volume
@@ -378,7 +378,7 @@ sudo rm -rf /Change/Path/redpanda/redpanda-1/*
 sudo rm -rf /Change/Path/redpanda/redpanda-2/*
 ```
 
-* #### **clean all data in mysql:** you can use **`setup-automation`** container to recreate all databases and tables
+* #### **clean all data in mysql:** you can use **`setup-automation`** container to recreate all databases and tables.
 
 ```sh
 # 1- stop all and clean some volume
@@ -387,7 +387,7 @@ docker compose down -v --remove-orphans
 sudo rm -rf /Change/Path/redpanda/mysql/*
 ```
 
-* #### **delete minio bucket:** you can use **`setup-automation`** container to recreate all databases and tables
+* #### **delete minio bucket:** you can use **minio UI** container to recreate all bucket.
 
 ```sh
 # delete a bucket
@@ -417,6 +417,7 @@ cd /opt/kafka/bin/
 * #### **Connector:**
 
 ```sh
+# FROM YOUR HOST SYSTEM
 # list of plugins available inside connector
 curl -s -X GET http://localhost:8093/connector-plugins | jq '.[].class'
 
@@ -426,18 +427,21 @@ curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json
 # deploy sink connector
 curl -X POST http://localhost:8093/connectors -H "Content-Type: application/json" -d @tyrok-sink-connector.json
 
-# list of deployed connector
+# list of deployed connectors
 curl -s http://localhost:8093/connectors | jq
 
-# check status of each connector
+# check status of each connectors
 curl -s http://localhost:8093/connectors/tyrok-source-connector/status | jq
 curl -s http://localhost:8093/connectors/tyrok-sink-connector/status | jq
 
-# pause or resume a connector
+# pause a connector
 curl -X PUT http://localhost:8093/connectors/{connector_name}/pause
+
+# resume a connector
 curl -X PUT http://localhost:8093/connectors/{connector_name}/resume
 
-# clean & delete a connector
+# clean & delete a connector (usefull when you want to restart ingestion)
+# !!Caution: before use this, clean redpanda volumes and minio bucket (client-redpanda)
 curl -X PUT http://localhost:8093/connectors/{connector_name}/stop
 curl -X DELETE http://localhost:8093/connectors/{connector_name}/offsets
 curl -X DELETE http://localhost:8093/connectors/{connector_name}
@@ -621,7 +625,7 @@ python main.py put --bucket my-bucket --local /path/to/local/file
     </picture>
 </p>
 
-* ### **Streamlit, client & Dashboard:** 
+* ### **Streamlit - client & Dashboard:** 
 
 <p align="center">
     <picture>
