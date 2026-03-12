@@ -8,18 +8,20 @@ services:
     hostname: catalog
     restart: always
     ports:
-      - 19120:19120
+      - 19720:19120
     depends_on:
       minio:
+        condition: service_healthy
+      mariadb:
         condition: service_healthy
     volumes:
       - share_data:/partage
     environment:
       # Configuration de Nessie pour utiliser MinIO comme backend de stockage
       # Vous pouvez ajuster ces variables en fonction de votre configuration MinIO
-      - nessie.version.store.type=IN_MEMORY
+      #- nessie.version.store.type=IN_MEMORY
       - nessie.catalog.default-warehouse=warehouse
-      - nessie.catalog.warehouses.warehouse.location=s3://nessie-bucket/
+      - nessie.catalog.warehouses.warehouse.location=s3://nessie-bucket/warehouse
       - nessie.catalog.service.s3.default-options.endpoint=http://minio:9000/
       - nessie.catalog.service.s3.default-options.access-key=urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
       - nessie.catalog.service.s3.default-options.path-style-access=true
@@ -29,20 +31,47 @@ services:
       - nessie.catalog.service.s3.default-options.region=us-east-1
       - nessie.server.authentication.enabled=false
       # persistance avec une base de données relationnelle (ex: MySQL/MariaDB)
-      ## Configuration du stockage
-      #- NESSIE_VERSION_STORE_TYPE=JDBC
-      #- NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE=mariadb # MySQL utilise le driver MariaDB compatible
-      #
-      ## Configuration de la source de données (Quarkus)
-      #- QUARKUS_DATASOURCE_MARIADB_JDBC_URL=jdbc:mariadb://mysql_db:3306/nessie
-      #- QUARKUS_DATASOURCE_MARIADB_USERNAME=nessie_user
-      #- QUARKUS_DATASOURCE_MARIADB_PASSWORD=nessie_password
+      # Configuration du stockage
+      # 1. Active le stockage persistant via JDBC
+      - NESSIE_VERSION_STORE_TYPE=JDBC
+      # 2. Définit le dialecte SQL (MariaDB)
+      - QUARKUS_DATASOURCE_DB_KIND=mariadb
+      - NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE=mariadb # MySQL utilise le driver MariaDB compatible      
+      # Configuration de la source de données (Quarkus)
+      - QUARKUS_DATASOURCE_MARIADB_JDBC_URL=jdbc:mariadb://mariadb:3306/nessie_metadata
+      - QUARKUS_DATASOURCE_MARIADB_USERNAME=mariadb
+      - QUARKUS_DATASOURCE_MARIADB_PASSWORD=password
+      # 4. Optimisation (Optionnel mais recommandé)
+      - QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION=update
     healthcheck:
       test: ["CMD", "curl", "-f", "http://catalog:19120/api/v1/trees"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 5s
+    networks:
+      - bigdata
+
+  ### USED FOR CATALOG METADATA
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    hostname: mariadb
+    restart: always
+    ports:
+      - 3316:3306
+    environment:
+      MARIADB_USER: mariadb
+      MARIADB_PASSWORD: password
+      MARIADB_DATABASE: nessie_metadata
+      MARIADB_ROOT_PASSWORD: mariadb
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mariadb_data:/var/lib/mysql
     networks:
       - bigdata
 
@@ -60,6 +89,7 @@ services:
       - "18080:8080"
     volumes:
       - ./trino/config:/etc/trino
+      #- ./trino/config/catalog/nessie.properties:/etc/trino/catalog/nessie.properties:ro
       - ./trino/config-coordinator.properties:/etc/trino/config.properties:ro
       - ./trino/node-coordinator.properties:/etc/trino/node.properties:ro
       - share_data:/partage
@@ -85,6 +115,7 @@ services:
     restart: always
     volumes:
       - ./trino/config:/etc/trino
+      #- ./trino/config/catalog/nessie.properties:/etc/trino/catalog/nessie.properties:ro
       - ./trino/config-worker.properties:/etc/trino/config.properties:ro
       - ./trino/node-worker-1.properties:/etc/trino/node.properties:ro
       - share_data:/partage
@@ -114,9 +145,12 @@ services:
     volumes:
       - minio_data:/data
       - share_data:/partage
-    # mc alias set myminio http://minio:9000 admin password123;
-    # mc rb --force myminio/test-bucket
-    command: server /data --console-address ":9001"
+    entrypoint: ["/bin/sh", "-c"] # On force le shell ici
+    command: >
+            "minio server /data --console-address ':9001' & 
+             sleep 5; 
+             mc alias set myalias http://localhost:9000 admin password123;
+             wait"
     restart: always
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -125,75 +159,7 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      - bigdata
-
-  # minio warehouse location: s3://polaris-bucket/warehouse
-  polaris:
-    image: apache/polaris:1.3.0-incubating
-    container_name: polaris
-    hostname: polaris
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "http://polaris:8182/q/health"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
-      start_period: 5s
-    ports:
-      - 8161:8181 # API REST + Console (selon version)
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      POLARIS_BOOTSTRAP: true
-      POLARIS_PERSISTENCE_TYPE: in-memory
-      QUARKUS_OTEL_SDK_DISABLED: true
-      polaris.features."ALLOW_INSECURE_STORAGE_TYPES": true
-      polaris.features."SUPPORTED_CATALOG_STORAGE_TYPES": "[\"S3\"]"
-      polaris.readiness.ignore-severe-issues: true
-      #POLARIS_DEFAULT_REALM: POLARIS
-      #POLARIS_DEFAULT_REALM: ${POLARIS_REALM}
-      POLARIS_REALM_CONTEXT_TYPE: default
-      POLARIS_REALM_CONTEXT_REALMS: POLARIS
-      POLARIS_REALM_CONTEXT_HEADER_NAME: Polaris-Realm
-      POLARIS_FEATURES_SUPPORTED_CATALOG_STORAGE_TYPES: S3 #S3,GCS,OSS,AZURE,FILE      
-      POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,polaris,password
-      #POLARIS_BOOTSTRAP_CREDENTIALS: polaris,password
-      #POLARIS_BOOTSTRAP_CREDENTIALS: ${POLARIS_REALM},${ROOT_CLIENT_ID},${ROOT_CLIENT_SECRET}
-
-      # S3 endpoint for MinIO
-      AWS_REGION: ${AWS_REGION}
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      AWS_ENDPOINT_URL_S3: ${MINIO_ENDPOINT}
-      quarkus.otel.sdk.disabled: true
-      polaris.features.DROP_WITH_PURGE_ENABLED: true
-    volumes:
-      - share_data:/partage
-    networks:
-      - bigdata
-
-  create-polaris-catalog:
-    image: alpine/curl:latest
-    container_name: create-polaris-catalog
-    hostname: create-polaris-catalog
-    restart: "no"
-    depends_on:
-      polaris:
-        condition: service_healthy
-    volumes:
-      - ./scripts/create-polaris-catalog.sh:/create-polaris-catalog.sh
-      - share_data:/partage
-    #command: ["/bin/sh", "-c", "apk add --no-cache jq && chmod +x /create-polaris-catalog.sh && /create-polaris-catalog.sh"]
-    command:
-      - /bin/sh
-      - -c
-      - |
-        apk add --no-cache jq
-        source /create-polaris-catalog.sh
-    networks:
-      - bigdata
-    
+      - bigdata    
 
 volumes:
   minio_data:
@@ -201,6 +167,12 @@ volumes:
     driver_opts:
       type: none
       device: /home/patrick/Téléchargements/ressources/minio
+      o: bind
+  mariadb_data:
+    driver: local # Define the driver and options under the volume name
+    driver_opts:
+      type: none
+      device: /home/patrick/Téléchargements/ressources/mariadb
       o: bind
   share_data:
     driver: local # Define the driver and options under the volume name

@@ -1,4 +1,5 @@
 coordinator=true
 node-scheduler.include-coordinator=true
 http-server.http.port=8080
+catalog.management=dynamic
 discovery.uri=http://trino:8080

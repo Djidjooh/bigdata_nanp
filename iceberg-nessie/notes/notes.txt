@@ -17,28 +17,10 @@ docker exec -it trino trino --catalog iceberg
 ## use case 1 [NESSIE]: les données sont stockées dans notre warehouse
 # look at nessie-bucket/warehouse/test_db/*
 # file: nessie.properties
+SHOW CATALOGS;
 CREATE SCHEMA nessie.test_db;
 CREATE TABLE nessie.test_db.data (id int, val varchar);
 INSERT INTO nessie.test_db.data VALUES (1, 'Hello Nessie');
-
-## use case 2[POLARIS]: les données sont stockées dans notre warehouse
-# look at polaris-warehouse/agence_raw/*
-CREATE SCHEMA IF NOT EXISTS polaris.agence_raw;
-
-CREATE TABLE polaris.agence_raw.client (
-    id BIGINT,
-    code VARCHAR,
-    name VARCHAR,
-    actif BOOLEAN
-)
-WITH (
-    format = 'PARQUET'
-);
-
-INSERT INTO polaris.agence_raw.client (id, code, name, actif)
-VALUES (1, 'CL001', 'Jean Dupont', true);
-
-SELECT * FROM polaris.agence_raw.client;
 
 ## use case 2: les données sont stockées dans un autre warehouse (par kafka)
 # look at client-bucket/topics/fullfillment.TYROK.TYROK.client/year=2026/month=02/day=28/hour=15
@@ -76,3 +58,13 @@ WITH (
 # Iceberg permet de les fusionner plus tard avec la commande
 ALTER TABLE iceberg.kafka_landing.client EXECUTE optimize;
 
+
+-- 5. croner pour optimisation
+-- Fusionne les petits fichiers en fichiers plus gros (à faire périodiquement)
+ALTER TABLE votre_table EXECUTE optimize;
+-- Nettoie les anciens snapshots pour alléger MariaDB/Nessie
+ALTER TABLE votre_table EXECUTE expire_snapshots(retention_threshold => '2d');
+
+
+# Executer TRINO depuis un autre client
+trino --server http://trino:8080 --execute "ALTER TABLE nessie.db_prod.sensor_data EXECUTE optimize";
