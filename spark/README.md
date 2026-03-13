@@ -1,10 +1,17 @@
-# 🦞 bigdata_nanp - NIFI — BigData batch stack
-bigdata tps and stuffs
+# 🦞 bigdata_nanp - SPARK (PySpark) — BigData Processing stack
+
+Tools (`Python`) used to process `.parquet` files store in a `minio` bucket.
+
+First of all we consider, you're able to ingest (`streaming`, `batch`) data from  majors sources (`Mysql`, `files`. ...), an store them in `Minio`.
+
+For example purpose, your datas (`client`, `product` and `sales`) are stored in buckets `raw-bucket/[client|product|sales]/*.parquet`.
+
+
 
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: light dark)" srcset="images/archi-nifi.drawio.png">
-        <img src="images/archi-nifi.drawio.png" alt="BigData stream stack (docker)" width="300" height="300">
+        <source media="(prefers-color-scheme: light dark)" srcset="images/archi.drawio.png">
+        <img src="images/archi.drawio.png" alt="BigData streaming stack (docker)" width="600" height="300">
     </picture>
 </p>
 
@@ -14,40 +21,77 @@ bigdata tps and stuffs
 
 ---
 
-**Stack** is a simple *BigData batch stack* running over *Docker*.
+**Stack** is a simple *BigData Processing stack* running over *Docker*.
 
-It will help you to deploy and test a simple **Batch** pipeline using **Docker** and **nifi**.
-
-**Components:**
-- **Mysql:** contains database `TYROK`
-- **NIFI:** use to ingest tables `client`, `product`, `sales`
-- **MINIO:** store result in `parquet` format. It use buckets `[client/product/sales]-bucket`
-- **PYTHON:** contains two folders:
-
-1- `python_mysql`: scripts use to add and list data in mysql
-
-2- `python_minio`: scripts use to add, list, read parquet and bucket in minio
-
-## PORTS & configs
-
-- **Mysql**: Default -> `3306`, Exposed -> `8889`
-- **Nifi**: Default (http,https) -> `8080,8443`, Exposed(http,https) -> `8887,8443`
-- **Minio API S3**: Default -> `9000`, Exposed -> `9030`
-- **Minio UI**: Default -> `9001`, Exposed -> `9031`
+It will help you to deploy and test a simple **Processing** pipeline using **Docker** and **Spark(pyspark)**.
 
 ---
 
-### Volumes
+**Note: the most usefull are `minio, spark-master, jupyter-pyspark`.**
+
+## **Components:**
+
+- **minio:** source & store result in `parquet` format. It use bucket `raw-redpanda` for source and `refine-bucket` for dastination.
+- **spark cluster:** Spread over three nodes (`spark-master`, `spark-worker1`, `spark-worker2`). used to process datas in `raw-bucket` ( `client`, `product`, `sales`). `saprk-master` act as `master node` and the two others as `slave or workers nodes`. **NOTES:** If it's take too much resources, comment or shutdown `spark-worker1` or `spark-worker2` or also transform `spark-master` as **master** and **worker** at the same time.
+- **jupyter-pyspark:** Notebook, connect to `spark cluster` and used to run `pyspark` scripts.
+
+---
+
+## **Files & Folders:**
+
+1- **images:** contains screenshot.
+
+2- **notes:** some `python scripts`:
+
+- `notes_parquet.py`: read data in minio (and store them in another bucket)
+
+- `notes_iceberg.py`: use `spark iceberg catalog` to store in `refine-bucket`.
+
+- `job.py`: will help you to run a simple `pyspark` script in command line.
+
+3- **notebooks:** some `notebooks`:
+
+- `first_parquet.ipynb`: read data in minio (and store them in another bucket)
+
+- `iceberg_parquet.ipynb`: use `spark iceberg catalog` to store in `refine-bucket`.
+
+4- **datas:** contains 3 files, but only 2 are usefull.
+
+- `client_bucket_topics.zip`: datas to upload in bucket `client-bucket`.
+
+- `raw_bucket_client_product_sales_parquet.zip`: datas to upload in bucket `raw-bucket`.
+
+---
+
+## **PORTS & configs**
+
+- **Minio UI**: Default -> `9001`, Exposed -> `9031`. **`[http://localhost:9031]`**
+
+- **Minio API S3**: Default -> `9000`, Exposed -> `9030`
+
+- **spark-master**: Default (http) -> `8080`, Exposed(http) -> `8980`. **`[http://localhost:8980]`**
+
+- **Jupyter Notebooks**: Default -> `8888`, Exposed -> `8988`. **`[http://localhost:8988]`**
+
+---
+
+### **Volumes**
 before you start the docker stack, make sure to change volumes locations
 
 ```yml
 
 volumes:
-  mysql_data:
+  pyspark_data:
     driver: local # Define the driver and options under the volume name
     driver_opts:
       type: none
-      device: /Change/Path/mysql
+      device: /Change/Path/pyspark
+      o: bind
+  jupyter_pyspark_data:
+    driver: local # Define the driver and options under the volume name
+    driver_opts:
+      type: none
+      device: /Change/Path/jupyter-pyspark
       o: bind
   minio_data:
     driver: local # Define the driver and options under the volume name
@@ -61,12 +105,36 @@ volumes:
       type: none
       device: /Change/Path/share_folder
       o: bind
-
 ```
 
 ---
 
-### Run project & some cleaning ops
+### **Configs & setup**
+
+* #### **Step 1:** Create all volumes folders inside your main host (see volumes above)
+
+* #### **step 2:** Clone the repo and move to folder **`saprk`**
+
+* #### **step 3:** Change volumes path inside **`compose.yml`** file under section **`volumes:`** (see above)
+
+* #### **step 4:** Start your project inside **`compose.yml`**.
+
+```sh
+# Be sure to be in the folder with compose.yml file
+# start all
+docker compose up -d
+```
+
+* #### **step 5:** if not yet, create bucket **`raw-bucket`**.
+
+* #### **step 6:** unzip files **`datas/raw_bucket_client_product_sales_parquet.zip`** and import folders **`client, product and sales`** inside bucket **`raw-bucket`**.
+
+* #### **step 7:** also import notebooks **`notebooks/*.ipynb`** inside **`work`** folder in jupyter.
+
+
+---
+
+### **Run project & some cleaning ops**
 
 ```sh
 # Be sure to be in the folder with compose.yml file
@@ -79,100 +147,69 @@ docker compose down -v --remove-orphans
 
 ---
 
-## Project
+### **Troubleshooting**
 
-### - mysql
-make sur you create all databases and tables
+* #### **delete minio bucket:** you can use **minio UI** container to recreate all bucket.
 
-### - minio
-url: http://localhost:9031/
-create all buckets
-
-### - python
-#### mysql
-
-```bash
-# first, make sure your in python container
-docker exec -it python_base bash
-
-# move to '/app/python_mysql'
-cd /app/python_mysql
-
-# commands helps
-python main.py --help
-
-# test connexion
-python main.py test
-
-# list datas
-python main.py list client
-python main.py list product
-python main.py list sales
-
-# add datas
-python main.py client --code "C003" --name "Entreprise XYZ"
-python main.py product --code "P-TAB" --name "Tablette" --pu 299.99
-python main.py sale --client_id 1 --product_id 2 --qte 3 --total 899.97
+```sh
+# delete a bucket
+docker exec minio mc rb --force myalias/[nom-du-bucket]
 ```
 
-#### minio
+---
 
-```bash
-# before, make sure to modify '.env' file
+### **Some commands**
 
-# first, make sure your in python container
-docker exec -it python_base bash
+---
 
-# move to '/app/python_minio'
-cd /app/python_minio
+## **Project**
 
-# commands helps
-python main.py --help
+- ### **minio**
 
-# list bucket content
-python main.py list --bucket my-bucket
+url: **`http://localhost:9031/`**
 
-# count files in bucket
-python main.py count --bucket my-bucket
+create buckets `raw-bucket` and `refine-bucket`
 
-# read parquet or csv file
-python main.py read --bucket my-bucket --file data.csv --style fancy_grid
-python main.py read --bucket my-bucket --file data.parquet --style fancy_grid
 
-# add file in bucket
-python main.py put --bucket my-bucket --local /path/to/local/file
-
-```
-
-#### nifi
-0- url: https://localhost:8443/nifi/login
-
-1- just import template `mysql-nifi-minio.xml`
-
-2- change username and password in `QueryDatabaseTablerecord` and `PutS3Object`
-
-3- create `jars` folder inside your `share_data` volume and copy all jars files inside
-
-4- some config settings: 
-
-Pool connection -> **Database Connection URL**: `jdbc:mysql://mysql:3306/TYROK`
-
-Pool connection -> **Database Driver ClassName**: `com.mysql.jdbc.Driver`
-
-Pool connection -> **Database Driver Location(s)**: `/partage/jars/mysql-connector-java-8.0.30.jar`
-
-update attribute -> **filename**: `client_${now():format('yyyyMMdd_HHmmss')}.parquet`
-
-PutS3Oject -> **EndPoint Override URL**: `http://minio:9000`
-
+* ### **Container:** Deployed containers
 
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: light dark)" srcset="images/1-mysql-nifi-minio.png">
-        <img src="images/1-mysql-nifi-minio.png" alt="BigData stream stack (docker)" width="600" height="700">
+        <source media="(prefers-color-scheme: light dark)" srcset="images/portainer.png">
+        <img src="images/portainer.png" alt="Containers list" width="600" height="400">
+    </picture>
+  </p>
+
+* ### **spark Cluster**
+
+  * **console**: **`https://localhost:8100/`** 
+
+  <p align="center">
+    <picture>
+        <source media="(prefers-color-scheme: light dark)" srcset="images/spark-cluster.png">
+        <img src="images/spark-cluster.png" alt="Redpanda console Cluster Details" width="600" height="400">
+    </picture>
+  </p>
+
+* ### **Minio:** Parquet files
+
+<p align="center">
+    <picture>
+        <source media="(prefers-color-scheme: light dark)" srcset="images/rw-minio-data.png">
+        <img src="images/rw-minio-data.png" alt="Containers list" width="600" height="400">
+    </picture>
+</p>
+
+* ### **Notebook - client & Pyspark:** 
+
+<p align="center">
+    <picture>
+        <source media="(prefers-color-scheme: light dark)" srcset="images/jupyter1.png">
+        <img src="images/jupyter1.png" alt="Containers list" width="600" height="300">
     </picture>
 </p>
 
 
+Enjoy!
 
 
